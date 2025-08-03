@@ -1,0 +1,69 @@
+承知いたしました。REST APIのセットアップ、具体的にはGitHubのOAuth
+  2.0認証フローを実装して、ユーザーが安全に認証できるようにしましょう。
+
+  現在の実装では、ダミーのアクセストークンを直接コードに埋め込んでいます
+  が、これはセキュリティ上非常に危険です。実際のアプリケーションでは、ユ
+  ーザーをGitHubの認証ページにリダイレクトし、認証後に払い出される一時的
+  なコード（code）をアクセストークン（access_token）に交換する必要があり
+  ます。
+
+  この「コードとアクセストークンを交換する」処理には、GitHub OAuth Appの
+   Client Secret が必要です。`Client Secret` 
+  は絶対にクライアントサイドのコード（Flutter 
+  Webアプリ）に含めてはいけません。
+  もし含めてしまうと、悪意のある第三者に Client Secret
+  が盗まれ、アプリケーションになりすまされる危険性があります。
+
+  安全な認証フローの実装
+
+  この問題を解決するため、Cloudflare Workers
+  を使って安全なバックエンド処理を実装することを提案します。Cloudflare W
+  orkersはサーバーレスでコードを実行できる環境で、今回の目的に最適です。
+
+  提案する認証フロー:
+
+   1. ユーザーのリダイレクト: Flutterアプリから、ユーザーをGitHubの認証ペー
+      ジへリダイレクトさせます。
+   2. 認証とコールバック: ユーザーがGitHubで認証すると、GitHubは指定されたU
+      RL（私たちのCloudflare Worker）に一時的な code
+      を付けてリダイレクトします。
+   3. トークン交換: Cloudflare Workerが code
+      を受け取ります。そして、安全な場所に保管しておいた Client ID と
+      Client Secret を使って、GitHubのAPIサーバーに access_token
+      をリクエストします。
+   4. クライアントへの応答: Cloudflare Workerは、取得した access_token
+      をFlutterアプリに応答します。この際、アクセストークンを安全なCookie（
+      HttpOnly）に設定して、クロスサイトスクリプティング（XSS）攻撃から保護
+      します。
+   5. API通信: Flutterアプリは、後続のGitHub APIリクエストを行う際に、Cooki
+      e経由でアクセストークンを自動的に送信して認証します。
+
+  この方法なら、Client Secret
+  をフロントエンドに漏らすことなく、安全に認証フローを実装できます。
+
+  次のステップ:
+
+  この方針で進めるために、まずGitHubでOAuth
+  Appを登録していただく必要があります。
+
+   1. [GitHubのDeveloper settings](https://github.com/settings/developers)
+      にアクセスしてください。
+   2. 「New OAuth App」をクリックします。
+   3. 以下の情報を入力します。
+       * Application name: GitHub Manager Web （またはお好きな名前）
+       * Homepage URL: http://localhost:3000 （開発中のURL）
+       * Authorization callback URL: ここには後で作成するCloudflare
+         WorkerのURLが入りますが、一旦ダミーで
+         http://localhost:8787/callback
+         などを入力しておいてください（後で変更します）。
+   4. 「Register application」をクリックします。
+   5. 作成されたアプリのページで、`Client ID`
+      をコピーして、ここに貼り付けてください。`Client Secret` 
+      は絶対に共有しないでください。
+
+  Client ID
+  を教えていただければ、それを使ってログイン処理の実装を開始します。
+
+Client ID
+Ov23liYD9Ebaw5CEBdj8
+

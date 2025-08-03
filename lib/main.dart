@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:github_manager_web/github_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const MyApp());
@@ -13,21 +14,52 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  final GitHubService _githubService = GitHubService();
   bool _isLoggedIn = false;
-  String? _accessToken;
+  bool _isLoading = true; // To show a loading indicator on startup
 
-  void _login(String accessToken) {
-    setState(() {
-      _isLoggedIn = true;
-      _accessToken = accessToken;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    try {
+      // Try to fetch user data. If it succeeds, we have a valid session.
+      await _githubService.getUser();
+      setState(() {
+        _isLoggedIn = true;
+        _isLoading = false;
+      });
+    } catch (e) {
+      // If it fails (e.g., 401 Unauthorized), the user is not logged in.
+      setState(() {
+        _isLoggedIn = false;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _login() {
+    // Get the current URL of the Flutter app.
+    final String currentUrl = Uri.base.toString();
+
+    // Redirect to the Cloudflare Worker's login endpoint, passing the current URL.
+    final loginUrl = Uri.parse('https://github-auth-worker.sumitomo0210.workers.dev/login')
+        .replace(queryParameters: {'redirect_uri': currentUrl});
+
+    launchUrl(loginUrl, webOnlyWindowName: '_self');
   }
 
   void _logout() {
+    // To log out, we can't directly clear the HttpOnly cookie from the client.
+    // A proper implementation would involve a /logout endpoint on the worker
+    // that clears the cookie. For now, we'll just update the UI state.
     setState(() {
       _isLoggedIn = false;
-      _accessToken = null;
     });
+    // Ideally, you would also navigate the user to a page that confirms logout.
   }
 
   @override
@@ -38,12 +70,11 @@ class _MyAppState extends State<MyApp> {
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: _isLoggedIn
-          ? RepositoryListPage(
-              onLogout: _logout,
-              githubService: GitHubService(_accessToken!),
-            )
-          : LoginPage(onLogin: () => _login("YOUR_DUMMY_ACCESS_TOKEN")),
+      home: _isLoading
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : _isLoggedIn
+              ? RepositoryListPage(onLogout: _logout, githubService: _githubService)
+              : LoginPage(onLogin: _login),
     );
   }
 }
@@ -107,7 +138,23 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('Error: ${snapshot.error}'),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _repositories = widget.githubService.getRepositories();
+                      });
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text('No repositories found.'));
           } else {
@@ -118,7 +165,7 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
                 final repo = repositories[index];
                 return ListTile(
                   leading: const Icon(Icons.book),
-                  title: Text(repo['name']),
+                  title: Text(repo['name'] ?? 'No Name'),
                   subtitle: Text(repo['description'] ?? 'No description'),
                   trailing: const Icon(Icons.arrow_forward_ios),
                   onTap: () {
