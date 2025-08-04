@@ -7,7 +7,7 @@ export default {
     const origin = request.headers.get('Origin');
     const corsHeaders = {
       'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE', // Add DELETE method
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Allow-Credentials': 'true',
     };
@@ -96,6 +96,7 @@ export default {
       Object.entries(corsHeaders).forEach(([key, value]) => {
         responseWithCors.headers.set(key, value);
       });
+      responseWithCors.headers.set('Cache-Control', 'no-store'); // Prevent caching
 
       return responseWithCors;
     }

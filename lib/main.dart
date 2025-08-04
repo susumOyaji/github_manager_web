@@ -121,25 +121,27 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
   @override
   void initState() {
     super.initState();
-    _fetchRepositories(isInitialLoad: true);
+    _loadPage(1);
   }
 
-  Future<void> _fetchRepositories({bool isInitialLoad = false}) async {
-    if (_isLoading && !isInitialLoad) return;
+  Future<void> _fetchRepositories({required int page, required int perPage}) async {
+    // if (_isLoading) return; // Prevent multiple simultaneous fetches - Removed
 
     setState(() {
       _isLoading = true;
-      if (isInitialLoad) _error = null;
+      _error = null; // Clear previous errors
     });
 
-    const int perPage = 30;
     List<dynamic> fetchedRepos = [];
     String? error;
 
     try {
-      fetchedRepos = await widget.githubService.getRepositories(page: _page, perPage: perPage);
+      fetchedRepos = await widget.githubService.getRepositories(page: page, perPage: perPage);
     } catch (e) {
       error = e.toString();
+      setState(() { // Ensure _isLoading is set to false even on error
+        _isLoading = false;
+      });
     }
 
     if (!mounted) return;
@@ -148,24 +150,24 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
       if (error != null) {
         _error = error;
       } else {
-        if (isInitialLoad) {
-          _repositories.clear();
-          _page = 1;
-          _hasMore = true;
-        }
         _repositories.addAll(fetchedRepos);
-
         _sortRepositories();
-
-        if (fetchedRepos.length < perPage) {
-          _hasMore = false;
-        } else {
-          _hasMore = true;
-          _page++;
-        }
+        _hasMore = fetchedRepos.length == perPage;
       }
       _isLoading = false;
     });
+  }
+
+  Future<void> _loadPage(int pageNumber) async {
+    if (pageNumber < 1) return; // Page numbers must be positive
+
+    setState(() {
+      _page = pageNumber;
+      if (_page == 1) {
+        _repositories.clear(); // Clear list only for the first page
+      }
+    });
+    await _fetchRepositories(page: _page, perPage: 30);
   }
 
   void _sortRepositories() {
@@ -182,7 +184,7 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
   Future<void> _refresh() {
     _page = 1;
     _hasMore = true;
-    return _fetchRepositories(isInitialLoad: true);
+    return _loadPage(1);
   }
 
   @override
@@ -220,7 +222,7 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
             Text(_error!),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: () => _fetchRepositories(isInitialLoad: true),
+              onPressed: () => _loadPage(1),
               child: const Text('Retry'),
             ),
           ],
@@ -274,9 +276,13 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
                             githubService: widget.githubService,
                           ),
                         ),
-                      ).then((value) {
-                        if (value == true) {
-                          _refresh();
+                      ).then((result) {
+                        if (result is String) { // If a string (full_name) is returned, it means a repo was deleted
+                          setState(() {
+                            _repositories.removeWhere((repo) => repo['full_name'] == result);
+                          });
+                        } else if (result == true) { // If true is returned, it means a refresh is needed (e.g., from initial setup)
+                          _refresh(); // Keep this for other refresh scenarios if needed
                         }
                       });
                     },
@@ -288,12 +294,24 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
                       padding: EdgeInsets.all(16.0),
                       child: Center(child: CircularProgressIndicator()),
                     );
-                  } else if (_hasMore) {
+                  } else if (_hasMore || _page > 1) {
                     return Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: ElevatedButton(
-                        onPressed: _isLoading ? null : () => _fetchRepositories(),
-                        child: const Text('次のページ'),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (_page > 1)
+                            ElevatedButton(
+                              onPressed: _isLoading ? null : () => _loadPage(_page - 1),
+                              child: const Text('前のページ'),
+                            ),
+                          if (_page > 1 && _hasMore) const SizedBox(width: 16),
+                          if (_hasMore)
+                            ElevatedButton(
+                              onPressed: _isLoading ? null : () => _loadPage(_page + 1),
+                              child: const Text('次のページ'),
+                            ),
+                        ],
                       ),
                     );
                   } else {
@@ -425,7 +443,7 @@ class _RepositoryDetailPageState extends State<RepositoryDetailPage> {
                           await widget.githubService.deleteRepository(widget.repo['full_name']);
                           
                           // Pop the detail page and signal that a deletion happened
-                          Navigator.of(context).pop(true);
+                          Navigator.of(context).pop(widget.repo['full_name']);
                           
                           // Show a success message on the list page
                           ScaffoldMessenger.of(context).showSnackBar(
