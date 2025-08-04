@@ -25,7 +25,7 @@ export default {
       }
       const githubUrl = new URL('https://github.com/login/oauth/authorize');
       githubUrl.searchParams.set('client_id', clientId);
-      githubUrl.searchParams.set('scope', 'repo read:user');
+      githubUrl.searchParams.set('scope', 'repo read:user delete_repo');
       githubUrl.searchParams.set('state', redirectUri);
       return Response.redirect(githubUrl.toString(), 302);
     }
@@ -52,7 +52,7 @@ export default {
       const accessToken = result.access_token;
       const headers = {
         'Location': state,
-        'Set-Cookie': `github_token=${accessToken}; HttpOnly; Secure; SameSite=Lax; Path=/`,
+        'Set-Cookie': `github_token=${accessToken}; HttpOnly; Path=/; SameSite=None; Secure`,
       };
       return new Response(null, { status: 302, headers });
     }
@@ -67,7 +67,27 @@ export default {
       const accessToken = cookie.match(/github_token=([^;]+)/)[1];
       const githubApiUrl = 'https://api.github.com' + url.pathname.replace('/api', '');
 
-      const githubResponse = await fetch(githubApiUrl, {
+      // Handle DELETE requests for repository deletion
+      if (request.method === 'DELETE' && url.pathname.startsWith('/api/repos/')) {
+        const githubResponse = await fetch(githubApiUrl, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `token ${accessToken}`,
+            'User-Agent': 'github-manager-web-worker',
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        });
+
+        // Forward the response status from GitHub API
+        return new Response(null, {
+          status: githubResponse.status,
+          statusText: githubResponse.statusText,
+          headers: corsHeaders,
+        });
+      }
+
+      // Handle GET requests
+      const githubResponse = await fetch(githubApiUrl + url.search, {
         headers: { 'Authorization': `token ${accessToken}`, 'User-Agent': 'github-manager-web-worker', 'Accept': 'application/vnd.github.v3+json' },
       });
 

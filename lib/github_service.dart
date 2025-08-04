@@ -10,9 +10,9 @@ class GitHubService {
     _client = BrowserClient()..withCredentials = true;
   }
 
-  Future<List<dynamic>> getRepositories() async {
+  Future<List<dynamic>> getRepositories({int page = 1, int perPage = 30}) async {
     final response = await _client.get(
-      Uri.parse('$_workerUrl/api/user/repos'),
+      Uri.parse('$_workerUrl/api/user/repos?per_page=$perPage&page=$page'),
     );
 
     if (response.statusCode == 200) {
@@ -33,6 +33,16 @@ class GitHubService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to load user data: ${response.body}');
+    }
+  }
+
+  Future<void> deleteRepository(String fullName) async {
+    final response = await _client.delete(
+      Uri.parse('$_workerUrl/api/repos/$fullName'),
+    );
+
+    if (response.statusCode != 204) {
+      throw Exception('Failed to delete repository. Status: ${response.statusCode}, Body: ${response.body}');
     }
   }
 }

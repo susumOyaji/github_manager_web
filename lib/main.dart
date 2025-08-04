@@ -112,12 +112,82 @@ class RepositoryListPage extends StatefulWidget {
 }
 
 class _RepositoryListPageState extends State<RepositoryListPage> {
-  Future<List<dynamic>>? _repositories;
+  List<dynamic> _repositories = []; // Make it non-final to allow reassignment
+  bool _isLoading = true; // Unified loading state
+  bool _hasMore = true;
+  int _page = 1;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _repositories = widget.githubService.getRepositories();
+    _fetchRepositories(isInitialLoad: true);
+  }
+
+  Future<void> _fetchRepositories({bool isInitialLoad = false}) async {
+    if (_isLoading && !isInitialLoad) return;
+
+    setState(() {
+      _isLoading = true;
+      if (isInitialLoad) _error = null;
+    });
+
+    const int perPage = 30;
+    List<dynamic> fetchedRepos = [];
+    String? error;
+
+    try {
+      fetchedRepos = await widget.githubService.getRepositories(page: _page, perPage: perPage);
+    } catch (e) {
+      error = e.toString();
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      if (error != null) {
+        _error = error;
+      } else {
+        if (isInitialLoad) {
+          _repositories.clear();
+          _page = 1;
+          _hasMore = true;
+        }
+        _repositories.addAll(fetchedRepos);
+
+        _sortRepositories();
+
+        if (fetchedRepos.length < perPage) {
+          _hasMore = false;
+        } else {
+          _hasMore = true;
+          _page++;
+        }
+      }
+      _isLoading = false;
+    });
+  }
+
+  void _sortRepositories() {
+    _repositories.sort((a, b) {
+      final aDate = DateTime.tryParse(a['pushed_at'] ?? '');
+      final bDate = DateTime.tryParse(b['pushed_at'] ?? '');
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return bDate.compareTo(aDate);
+    });
+  }
+
+  Future<void> _refresh() {
+    _page = 1;
+    _hasMore = true;
+    return _fetchRepositories(isInitialLoad: true);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override
@@ -132,50 +202,248 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
           ),
         ],
       ),
-      body: FutureBuilder<List<dynamic>>(
-        future: _repositories,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error: ${snapshot.error}'),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        _repositories = widget.githubService.getRepositories();
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading && _repositories.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    } else if (_error != null && _repositories.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error!),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () => _fetchRepositories(isInitialLoad: true),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    } else if (_repositories.isEmpty) {
+      return const Center(child: Text('No repositories found.'));
+    } else {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Text('読み込み済み: ${_repositories.length}件'),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _repositories.length + (_hasMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index < _repositories.length) {
+                  final repo = _repositories[index];
+                  final updatedAt = repo['pushed_at'] != null
+                      ? DateTime.tryParse(repo['pushed_at'])
+                      : null;
+                  final formattedDate = updatedAt != null
+                      ? 'Updated: ${updatedAt.toLocal().toString().substring(0, 10)}'
+                      : 'No update info';
+
+                  // Add a UniqueKey to each ListTile for efficient list updates
+                  return ListTile( 
+                    key: ValueKey(repo['id']), // Use repo ID as a unique key
+                    leading: const Icon(Icons.book),
+                    title: Text(repo['name'] ?? 'No Name'),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(repo['description'] ?? 'No description'),
+                        const SizedBox(height: 4),
+                        Text(
+                          formattedDate,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => RepositoryDetailPage(
+                            repo: repo,
+                            githubService: widget.githubService,
+                          ),
+                        ),
+                      ).then((value) {
+                        if (value == true) {
+                          _refresh();
+                        }
                       });
                     },
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            );
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No repositories found.'));
-          } else {
-            final repositories = snapshot.data!;
-            return ListView.builder(
-              itemCount: repositories.length,
-              itemBuilder: (context, index) {
-                final repo = repositories[index];
-                return ListTile(
-                  leading: const Icon(Icons.book),
-                  title: Text(repo['name'] ?? 'No Name'),
-                  subtitle: Text(repo['description'] ?? 'No description'),
-                  trailing: const Icon(Icons.arrow_forward_ios),
-                  onTap: () {
-                    // TODO: Implement repository detail view
-                  },
-                );
+                  );
+                } else {
+                  // 末尾にローディングまたは「次のページ」ボタン
+                  if (_isLoading) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  } else if (_hasMore) {
+                    return Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : () => _fetchRepositories(),
+                        child: const Text('次のページ'),
+                      ),
+                    );
+                  } else {
+                    return const SizedBox.shrink();
+                  }
+                }
               },
-            );
-          }
-        },
+            ),
+          ),
+        ],
+      );
+    }
+  }
+}
+
+class RepositoryDetailPage extends StatefulWidget {
+  final Map<String, dynamic> repo;
+  final GitHubService githubService;
+
+  const RepositoryDetailPage({super.key, required this.repo, required this.githubService});
+
+  @override
+  State<RepositoryDetailPage> createState() => _RepositoryDetailPageState();
+}
+
+class _RepositoryDetailPageState extends State<RepositoryDetailPage> {
+  bool _isDeleting = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.repo['name'] ?? 'Repository Detail'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.repo['full_name'] ?? 'No full name',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(widget.repo['description'] ?? 'No description available.'),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(Icons.star_border),
+                const SizedBox(width: 8),
+                Text('${widget.repo['stargazers_count'] ?? 0} stars'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.call_split),
+                const SizedBox(width: 8),
+                Text('${widget.repo['forks_count'] ?? 0} forks'),
+              ],
+            ),
+             const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.code),
+                const SizedBox(width: 8),
+                Text(widget.repo['language'] ?? 'N/A'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.bug_report),
+                const SizedBox(width: 8),
+                Text('${widget.repo['open_issues_count'] ?? 0} open issues'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                if (widget.repo['owner'] != null && widget.repo['owner']['avatar_url'] != null)
+                  CircleAvatar(
+                    backgroundImage: NetworkImage(widget.repo['owner']['avatar_url']),
+                  ),
+                const SizedBox(width: 8),
+                Text('Owner: ${widget.repo['owner']?['login'] ?? 'N/A'}'),
+              ],
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('Delete This Repository'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _isDeleting
+                  ? null
+                  : () async {
+                      setState(() {
+                        _isDeleting = true;
+                      });
+                      final bool? confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (context) {
+                          return AlertDialog(
+                            title: const Text('Confirm Deletion'),
+                            content: Text(
+                              'Are you sure you want to delete "${widget.repo['name']}"?\n\nTHIS ACTION CANNOT BE UNDONE.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(true),
+                                child: const Text('DELETE', style: TextStyle(color: Colors.red)),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+
+                      if (confirmed == true && context.mounted) {
+                        try {
+                          await widget.githubService.deleteRepository(widget.repo['full_name']);
+                          
+                          // Pop the detail page and signal that a deletion happened
+                          Navigator.of(context).pop(true);
+                          
+                          // Show a success message on the list page
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('"${widget.repo['name']}" was deleted successfully.')),
+                          );
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Failed to delete repository: $e')),
+                          );
+                        }
+                      }
+                      setState(() {
+                        _isDeleting = false;
+                      });
+                    },
+            ),
+          ],
+        ),
       ),
     );
   }
