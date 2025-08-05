@@ -112,8 +112,9 @@ class RepositoryListPage extends StatefulWidget {
 }
 
 class _RepositoryListPageState extends State<RepositoryListPage> {
-  List<dynamic> _repositories = []; // Make it non-final to allow reassignment
-  bool _isLoading = true; // Unified loading state
+  final ScrollController _scrollController = ScrollController();
+  List<dynamic> _repositories = [];
+  bool _isLoading = true;
   bool _hasMore = true;
   int _page = 1;
   String? _error;
@@ -124,50 +125,43 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
     _loadPage(1);
   }
 
-  Future<void> _fetchRepositories({required int page, required int perPage}) async {
-    // if (_isLoading) return; // Prevent multiple simultaneous fetches - Removed
-
-    setState(() {
-      _isLoading = true;
-      _error = null; // Clear previous errors
-    });
-
-    List<dynamic> fetchedRepos = [];
-    String? error;
-
-    try {
-      fetchedRepos = await widget.githubService.getRepositories(page: page, perPage: perPage);
-    } catch (e) {
-      error = e.toString();
-      setState(() { // Ensure _isLoading is set to false even on error
-        _isLoading = false;
-      });
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      if (error != null) {
-        _error = error;
-      } else {
-        _repositories.addAll(fetchedRepos);
-        _sortRepositories();
-        _hasMore = fetchedRepos.length == perPage;
-      }
-      _isLoading = false;
-    });
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPage(int pageNumber) async {
     if (pageNumber < 1) return; // Page numbers must be positive
 
     setState(() {
-      _page = pageNumber;
-      if (_page == 1) {
-        _repositories.clear(); // Clear list only for the first page
-      }
+      _isLoading = true;
+      _error = null;
     });
-    await _fetchRepositories(page: _page, perPage: 30);
+
+    try {
+      final fetchedRepos = await widget.githubService.getRepositories(page: pageNumber, perPage: 30);
+      if (!mounted) return;
+
+      setState(() {
+        _page = pageNumber;
+        _repositories = fetchedRepos; // Always replace the list for pagination
+        _sortRepositories();
+        _hasMore = fetchedRepos.length == 30;
+        _isLoading = false;
+      });
+
+      // After the new page is rendered, scroll to the top.
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
   }
 
   void _sortRepositories() {
@@ -182,14 +176,7 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
   }
 
   Future<void> _refresh() {
-    _page = 1;
-    _hasMore = true;
     return _loadPage(1);
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 
   @override
@@ -231,15 +218,19 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
     } else if (_repositories.isEmpty) {
       return const Center(child: Text('No repositories found.'));
     } else {
+      // Calculate the cumulative count of loaded items for display purposes.
+      final loadedCount = (_page - 1) * 30 + _repositories.length;
+
       return Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: Text('読み込み済み: ${_repositories.length}件'),
+            child: Text('読み込み済み: $loadedCount件'),
           ),
           Expanded(
             child: ListView.builder(
-              itemCount: _repositories.length + (_hasMore ? 1 : 0),
+              controller: _scrollController, // Use the scroll controller
+              itemCount: _repositories.length + 1, // +1 for the pagination controls
               itemBuilder: (context, index) {
                 if (index < _repositories.length) {
                   final repo = _repositories[index];
@@ -250,9 +241,8 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
                       ? 'Updated: ${updatedAt.toLocal().toString().substring(0, 10)}'
                       : 'No update info';
 
-                  // Add a UniqueKey to each ListTile for efficient list updates
-                  return ListTile( 
-                    key: ValueKey(repo['id']), // Use repo ID as a unique key
+                  return ListTile(
+                    key: ValueKey(repo['id']),
                     leading: const Icon(Icons.book),
                     title: Text(repo['name'] ?? 'No Name'),
                     subtitle: Column(
@@ -277,46 +267,33 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
                           ),
                         ),
                       ).then((result) {
-                        if (result is String) { // If a string (full_name) is returned, it means a repo was deleted
-                          setState(() {
-                            _repositories.removeWhere((repo) => repo['full_name'] == result);
-                          });
-                        } else if (result == true) { // If true is returned, it means a refresh is needed (e.g., from initial setup)
-                          _refresh(); // Keep this for other refresh scenarios if needed
+                        if (result is String || result == true) {
+                          _refresh();
                         }
                       });
                     },
                   );
                 } else {
-                  // 末尾にローディングまたは「次のページ」ボタン
-                  if (_isLoading) {
-                    return const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  } else if (_hasMore || _page > 1) {
-                    return Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (_page > 1)
-                            ElevatedButton(
-                              onPressed: _isLoading ? null : () => _loadPage(_page - 1),
-                              child: const Text('前のページ'),
-                            ),
-                          if (_page > 1 && _hasMore) const SizedBox(width: 16),
-                          if (_hasMore)
-                            ElevatedButton(
-                              onPressed: _isLoading ? null : () => _loadPage(_page + 1),
-                              child: const Text('次のページ'),
-                            ),
-                        ],
-                      ),
-                    );
-                  } else {
-                    return const SizedBox.shrink();
-                  }
+                  // Footer with pagination controls
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_page > 1)
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : () => _loadPage(_page - 1),
+                            child: const Text('前のページ'),
+                          ),
+                        if (_page > 1 && _hasMore) const SizedBox(width: 16),
+                        if (_hasMore)
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : () => _loadPage(_page + 1),
+                            child: const Text('次のページ'),
+                          ),
+                      ],
+                    ),
+                  );
                 }
               },
             ),
