@@ -154,7 +154,7 @@ class LoginPage extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset('web/icons/Icon-512.png', width: 80, height: 80),
+            Image.asset('web/icons/github.png', width: 80, height: 80),
             const SizedBox(height: 24),
             Text('GitHub Manager', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
