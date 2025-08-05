@@ -67,8 +67,71 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       title: 'GitHub Manager',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        scaffoldBackgroundColor: const Color(0xFFF6F8FA), // GitHub background
+        primaryColor: const Color(0xFF24292E), // GitHub header
+        fontFamily: 'Segoe UI', // A common sans-serif font
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF2EA44F), // GitHub green for buttons
+          secondary: Color(0xFF0366D6), // GitHub blue for links/accents
+          onPrimary: Colors.white,
+          surface: Colors.white, // Card background
+          onSurface: Color(0xFF24292E), // Main text color
+          error: Color(0xFFD73A49), // GitHub red for errors/delete
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF24292E),
+          foregroundColor: Colors.white,
+          elevation: 0, // Flat app bar
+          titleTextStyle: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          )
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF2EA44F), // Green button
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(6),
+            ),
+            elevation: 0,
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFF0366D6), // Blue link color
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        ),
+        textTheme: const TextTheme(
+          bodyLarge: TextStyle(color: Color(0xFF24292E), fontSize: 14),
+          bodyMedium: TextStyle(color: Color(0xFF24292E), fontSize: 14),
+          bodySmall: TextStyle(color: Color(0xFF586069), fontSize: 12),
+          headlineSmall: TextStyle(color: Color(0xFF24292E), fontWeight: FontWeight.w600, fontSize: 24),
+          titleLarge: TextStyle(color: Color(0xFF24292E), fontWeight: FontWeight.w600, fontSize: 20),
+          titleMedium: TextStyle(color: Color(0xFF24292E), fontWeight: FontWeight.w600, fontSize: 16),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFFE1E4E8),
+          thickness: 1,
+        ),
+        listTileTheme: const ListTileThemeData(
+          tileColor: Colors.white,
+          shape: Border(
+            bottom: BorderSide(color: Color(0xFFE1E4E8), width: 1)
+          )
+        ),
+        cardTheme: CardTheme(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+            side: const BorderSide(color: Color(0xFFD1D5DA)),
+          ),
+          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        ),
       ),
       home: _isLoading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
@@ -87,13 +150,22 @@ class LoginPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Login'),
-      ),
       body: Center(
-        child: ElevatedButton(
-          onPressed: onLogin,
-          child: const Text('Login with GitHub'),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset('web/icons/Icon-512.png', width: 80, height: 80),
+            const SizedBox(height: 24),
+            Text('GitHub Manager', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            Text('Sign in to continue', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.login),
+              onPressed: onLogin,
+              label: const Text('Login with GitHub'),
+            ),
+          ],
         ),
       ),
     );
@@ -188,6 +260,7 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: widget.onLogout,
+            tooltip: 'Logout',
           ),
         ],
       ),
@@ -206,7 +279,7 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_error!),
+            Text('Failed to load repositories: $_error'),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () => _loadPage(1),
@@ -218,18 +291,34 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
     } else if (_repositories.isEmpty) {
       return const Center(child: Text('No repositories found.'));
     } else {
-      // Calculate the cumulative count of loaded items for display purposes.
       final loadedCount = (_page - 1) * 30 + _repositories.length;
 
       return Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text('読み込み済み: $loadedCount件'),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: Color(0xFFD1D5DA)))
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '$loadedCount results for public repositories',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                Text(
+                  'Page $_page',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ),
           Expanded(
             child: ListView.builder(
-              controller: _scrollController, // Use the scroll controller
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
               itemCount: _repositories.length + 1, // +1 for the pagination controls
               itemBuilder: (context, index) {
                 if (index < _repositories.length) {
@@ -238,58 +327,76 @@ class _RepositoryListPageState extends State<RepositoryListPage> {
                       ? DateTime.tryParse(repo['pushed_at'])
                       : null;
                   final formattedDate = updatedAt != null
-                      ? 'Updated: ${updatedAt.toLocal().toString().substring(0, 10)}'
+                      ? 'Updated on ${updatedAt.toLocal().toString().substring(0, 10)}'
                       : 'No update info';
 
-                  return ListTile(
-                    key: ValueKey(repo['id']),
-                    leading: const Icon(Icons.book),
-                    title: Text(repo['name'] ?? 'No Name'),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(repo['description'] ?? 'No description'),
-                        const SizedBox(height: 4),
-                        Text(
-                          formattedDate,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: const Color(0xFFD1D5DA)),
+                      borderRadius: BorderRadius.circular(6)
                     ),
-                    trailing: const Icon(Icons.arrow_forward_ios),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => RepositoryDetailPage(
-                            repo: repo,
-                            githubService: widget.githubService,
+                    child: ListTile(
+                      key: ValueKey(repo['id']),
+                      title: Text(repo['name'] ?? 'No Name', style: TextStyle(color: Theme.of(context).colorScheme.secondary, fontWeight: FontWeight.bold)),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 4),
+                          Text(repo['description'] ?? 'No description'),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              if(repo['language'] != null) ...[
+                                const Icon(Icons.code, size: 16),
+                                const SizedBox(width: 4),
+                                Text(repo['language'], style: Theme.of(context).textTheme.bodySmall),
+                                const SizedBox(width: 16),
+                              ],
+                              const Icon(Icons.star_border, size: 16),
+                              const SizedBox(width: 4),
+                              Text(repo['stargazers_count'].toString(), style: Theme.of(context).textTheme.bodySmall),
+                              const SizedBox(width: 16),
+                              Text(formattedDate, style: Theme.of(context).textTheme.bodySmall),
+                            ],
                           ),
-                        ),
-                      ).then((result) {
-                        if (result is String || result == true) {
-                          _refresh();
-                        }
-                      });
-                    },
+                        ],
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => RepositoryDetailPage(
+                              repo: repo,
+                              githubService: widget.githubService,
+                            ),
+                          ),
+                        ).then((result) {
+                          if (result is String || result == true) {
+                            _refresh();
+                          }
+                        });
+                      },
+                    ),
                   );
                 } else {
                   // Footer with pagination controls
                   return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    padding: const EdgeInsets.symmetric(vertical: 24.0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         if (_page > 1)
-                          ElevatedButton(
+                          TextButton(
                             onPressed: _isLoading ? null : () => _loadPage(_page - 1),
-                            child: const Text('前のページ'),
+                            child: const Text('‹ Previous'),
                           ),
                         if (_page > 1 && _hasMore) const SizedBox(width: 16),
                         if (_hasMore)
-                          ElevatedButton(
+                          TextButton(
                             onPressed: _isLoading ? null : () => _loadPage(_page + 1),
-                            child: const Text('次のページ'),
+                            child: const Text('Next ›'),
                           ),
                       ],
                     ),
@@ -319,54 +426,25 @@ class _RepositoryDetailPageState extends State<RepositoryDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.repo['name'] ?? 'Repository Detail'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               widget.repo['full_name'] ?? 'No full name',
-              style: Theme.of(context).textTheme.headlineSmall,
+              style: textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),
-            Text(widget.repo['description'] ?? 'No description available.'),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Icon(Icons.star_border),
-                const SizedBox(width: 8),
-                Text('${widget.repo['stargazers_count'] ?? 0} stars'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.call_split),
-                const SizedBox(width: 8),
-                Text('${widget.repo['forks_count'] ?? 0} forks'),
-              ],
-            ),
-             const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.code),
-                const SizedBox(width: 8),
-                Text(widget.repo['language'] ?? 'N/A'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.bug_report),
-                const SizedBox(width: 8),
-                Text('${widget.repo['open_issues_count'] ?? 0} open issues'),
-              ],
-            ),
-            const SizedBox(height: 16),
+            Text(widget.repo['description'] ?? 'No description available.', style: textTheme.bodyLarge),
+            const SizedBox(height: 24),
             const Divider(),
             const SizedBox(height: 16),
             Row(
@@ -374,25 +452,36 @@ class _RepositoryDetailPageState extends State<RepositoryDetailPage> {
                 if (widget.repo['owner'] != null && widget.repo['owner']['avatar_url'] != null)
                   CircleAvatar(
                     backgroundImage: NetworkImage(widget.repo['owner']['avatar_url']),
+                    radius: 16,
                   ),
                 const SizedBox(width: 8),
-                Text('Owner: ${widget.repo['owner']?['login'] ?? 'N/A'}'),
+                Text('Owner: ${widget.repo['owner']?['login'] ?? 'N/A'}', style: textTheme.titleMedium),
               ],
             ),
+            const SizedBox(height: 16),
+            const Divider(),
             const SizedBox(height: 24),
+            Text('Repository Details', style: textTheme.titleLarge),
+            const SizedBox(height: 16),
+            _buildDetailRow(context, Icons.star_border, '${widget.repo['stargazers_count'] ?? 0} stars'),
+            _buildDetailRow(context, Icons.call_split, '${widget.repo['forks_count'] ?? 0} forks'),
+            _buildDetailRow(context, Icons.code, widget.repo['language'] ?? 'N/A'),
+            _buildDetailRow(context, Icons.bug_report, '${widget.repo['open_issues_count'] ?? 0} open issues'),
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 24),
+            Text('Danger Zone', style: textTheme.titleLarge?.copyWith(color: colorScheme.error)),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
               icon: const Icon(Icons.delete_forever),
               label: const Text('Delete This Repository'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
+                backgroundColor: colorScheme.error,
+                foregroundColor: colorScheme.onPrimary,
               ),
               onPressed: _isDeleting
                   ? null
                   : () async {
-                      setState(() {
-                        _isDeleting = true;
-                      });
                       final bool? confirmed = await showDialog<bool>(
                         context: context,
                         builder: (context) {
@@ -406,39 +495,61 @@ class _RepositoryDetailPageState extends State<RepositoryDetailPage> {
                                 onPressed: () => Navigator.of(context).pop(false),
                                 child: const Text('Cancel'),
                               ),
-                              TextButton(
+                              ElevatedButton(
                                 onPressed: () => Navigator.of(context).pop(true),
-                                child: const Text('DELETE', style: TextStyle(color: Colors.red)),
+                                style: ElevatedButton.styleFrom(backgroundColor: colorScheme.error),
+                                child: const Text('DELETE'),
                               ),
                             ],
                           );
                         },
                       );
 
-                      if (confirmed == true && context.mounted) {
-                        try {
-                          await widget.githubService.deleteRepository(widget.repo['full_name']);
-                          
-                          // Pop the detail page and signal that a deletion happened
-                          Navigator.of(context).pop(widget.repo['full_name']);
-                          
-                          // Show a success message on the list page
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('"${widget.repo['name']}" was deleted successfully.')),
-                          );
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Failed to delete repository: $e')),
-                          );
-                        }
+                      if (confirmed != true) return;
+
+                      // Check if the widget is still in the tree after the dialog.
+                      if (!context.mounted) return;
+
+                      setState(() { _isDeleting = true; });
+
+                      try {
+                        await widget.githubService.deleteRepository(widget.repo['full_name']);
+                        
+                        // Check again if the widget is still mounted after the async call.
+                        if (!context.mounted) return;
+
+                        Navigator.of(context).pop(widget.repo['full_name']);
+                        
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('"${widget.repo['name']}" was deleted successfully.')),
+                        );
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to delete repository: $e')),
+                        );
+                      } finally {
+                         if(context.mounted) {
+                          setState(() { _isDeleting = false; });
+                         }
                       }
-                      setState(() {
-                        _isDeleting = false;
-                      });
                     },
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(BuildContext context, IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Theme.of(context).textTheme.bodySmall?.color),
+          const SizedBox(width: 12),
+          Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        ],
       ),
     );
   }
